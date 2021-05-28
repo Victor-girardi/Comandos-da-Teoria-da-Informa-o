@@ -4,7 +4,8 @@
 ## Data da última atualização: 28 de maio de 2021                                             ##          
 ## Projeto principal: Inferência da conectividade neuronal via medidas da teoria da informação##
 ## Orientador: Prof. Dr. Ricardo Felipe Ferreira                                              ##
-## Co-orientador: Dr. Rodrigo Pena                                                            ##                                                  
+## Co-orientador: Dr. Rodrigo Pena                                                            ##
+## Linguagem: R-Studio                                                                        ##
 ################################################################################################
 
 # bibliotecas utilizadas
