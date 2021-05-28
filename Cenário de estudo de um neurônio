@@ -1,0 +1,572 @@
+################################################################################################
+##   ALGORITMO PARA ESTIMAÇÃO DA ENTROPIA CONDICIONAL EM DOIS CENÁRIOS DISTINTOS              ##
+## Autor: Victor Augusto Girardi                                                              ##
+## Data da última atualização: 28 de maio de 2021                                             ##          
+## Projeto principal: Inferência da conectividade neuronal via medidas da teoria da informação##
+## Orientador: Prof. Dr. Ricardo Felipe Ferreira                                              ##
+## Co-orientador: Dr. Rodrigo Pena                                                            ##                                                  
+################################################################################################
+
+# bibliotecas utilizadas
+library("seqinr")
+#library(tidyverse)
+library(data.table)
+
+# definir uma semente para a simulação
+set.seed(semente)
+
+#gerando os valores inciais
+x = rbinom(4,1,0.5)
+
+# tamanho da estimação escolhido
+n.amostral = 15000
+
+### gerar a partir da inversa da logistica
+
+#potenciais de membrana
+valores.sigmoide = c(-2.9,-1.7,0,0.8)
+#valores.sigmoide
+
+# inversa da logistica
+
+funcao.sigmoide = 1/(1 + exp(-valores.sigmoide))
+#funcao.sigmoide
+
+#potenciais de membrana
+valores.log.log = c(-2.9,-1.7,0,0.8)
+#valores.log.log
+
+# complemento log-log
+funcao.log.log = 1 - exp(-exp(valores.log.log))
+
+#matriz das probabilidades de transição para o estado 1 (disparar)
+
+q.sigmoide = matrix(funcao.sigmoide,length(valores.sigmoide),1)
+
+#matriz das probabilidades de transição para o estado 1 (disparar)
+
+q.log.log = matrix(funcao.log.log,length(valores.log.log),1)
+
+# criando a matriz geradora
+# Contém todas as probabilidades de transição e é necessária para as comparações finais com as matrizes estimadas
+# Nesta matriz colocamos as probabilidades geradas na respectiva coluna 2 e geramos seu complementar afim de termos ambos os estados de transição
+matriz.geradora = matrix(0,5,2)
+matriz.geradora[1,1] = 1 - q.sigmoide[1,1]
+matriz.geradora[1,2] = q.sigmoide[1,1]
+
+matriz.geradora[2,1] = 1 - q.sigmoide[2,1]
+matriz.geradora[2,2] = q.sigmoide[2,1]
+
+matriz.geradora[3,1] = 1 - q.sigmoide[3,1]
+matriz.geradora[3,2] = q.sigmoide[3,1]
+
+matriz.geradora[4,1] = 1 - q.sigmoide[4,1]
+matriz.geradora[4,2] = q.sigmoide[4,1]
+
+matriz.geradora[5,1] = 0
+matriz.geradora[5,2] = 1
+
+matriz.geradora
+
+# Argumentos da função criacao.amostra().
+# x: vetor com os primeiros valores da cadeia estocástica;
+# n: tamanho da amostra que quero gerar;
+# q: matriz das probabilidades de transição para o estado 1 (disparar);
+# burn: um valor entre [0.1, 1] que indica a porcentagem de valores que será descartado no processo de estimação;
+# ordem: crescente ou decrescente a depender se a probabilidade de transição para o estado 1 aumenta ou diminui conforme o tempo passa.
+
+# Caso queira testar os código da função criacao.amostra, defina abaixo os argumentos que deseja utilizar:
+# x <- x
+# n <- 48.000
+# q <- q.sigmoide
+# burn <- 0.1
+# ordem <- 'crescente'
+
+criacao.amostra <- function(x,n,q,burn,ordem){
+  #
+  cadeia.alcance = x
+  #vetor de tamanho n de valores pseudo-aleatórios gerados a partir de uma distribuição uniforme no intervalo (0,1)
+  y = runif(n)
+  #função que encontra o valor 1 na sequência de valores x
+  ser_um <- function(x) x == 1
+  #vetor com a posição do último 1 observado na sequência de valores x
+  ultimo_um = c()
+  #distância absoluta entre o último 1 encontrado na sequência de valores x e o instante presente
+  distancia.ultimo.um = c()
+  #número de elementos da sequência de valores x
+  a = length(cadeia.alcance)
+  #tornando o objeto "matrix" q em um objeto do tipo "data frame"
+  df <- data.frame(q)
+  #inserindo um cabeçalho para as colunas do objeto "data frame" criado anteriormente
+  names(df) <- c("probabilidade")
+  #tornando o objeto "data frame" df em um objeto do tipo "data table"
+  dt <- data.table(df)
+  #altura da árvore de contexto ou, equivalentemente, tamanho da matriz q
+  altura.arvore = length(q)
+  #
+  ultimo.estado = altura.arvore - 1
+  #inserindo uma coluna no objeto "data table" dt que informa a distância absoluta entre os tempos t-1 o tempo último disparo do neurônio
+  dt[ , distancia := 0:ultimo.estado ]
+  #tornando o objeto "data table" dt em um objeto do tipo "data frame"
+  novo.df <- data.frame(dt)
+  #se a ordem das probabilidades é crescente, então Q(1|0000) = 1.
+  if (ordem == 'crescente'){
+    corte.altura <- data.frame(1,altura.arvore)
+  #se a ordem das probabilidades é decrescente, então Q(1|0000) = 0.
+  }else{
+    corte.altura <- data.frame(0,altura.arvore)
+  }
+  #inserindo um cabeçalho para as colunas do objeto "data frame" corte.altura
+  names(corte.altura) <- c("probabilidade","distancia")
+  #inserindo a linha relativa á probabilidade de transição Q(1|0000)
+  frame.final <- rbind(novo.df,corte.altura)
+ 
+  #Gerando n novas observações da cadeia (x,x[5], x[6], x[7], ..., x[n]), em que x são os valores iniciais fixados
+  for(i in 1:n){
+    #
+    ultimo_um <- tapply(seq_along(cadeia.alcance), cadeia.alcance, max)
+    #Distância da ocorrência do último 1 em relação ao tempo presente
+    #Lembrete: a é o tamanho das observações iniciais x
+    distancia.ultimo.um[[i]] <- a + i - ultimo_um[[2]] - 1
+    #selecionando as linhas do frame.final cuja coluna distância é a distância do último 1 calculada anteriormente
+    nova.obs <- subset(frame.final,frame.final$distancia == distancia.ultimo.um[[i]])
+    #selecionando apenas a coluna probabilidade do objeto nova.obs definido acima
+    nova.obs <- nova.obs$probabilidade
+    #criando as novas observações comparando nova.obs com os valores pseudo-aleatórios gerados
+    if (ordem == 'crescente'){
+      if (y[i] <= nova.obs[[1]]){
+        cadeia.alcance[a+i] = 1
+      } else{
+        cadeia.alcance[a+i] = 0
+      }
+    }else{
+      if (y[i] > nova.obs[[1]]){
+        cadeia.alcance[a+i] = 1
+      } else{
+        cadeia.alcance[a+i] = 0
+      }
+    }
+  }
+  #quantidade de observações iniciais que serão retiradas da amostra para minimizar a influência dos valores iniciais fixados
+  burning = length(cadeia.alcance)*burn
+  #cadeia final
+  cadeia.alcance.final = cadeia.alcance[burning:length(cadeia.alcance)]
+  return(cadeia.alcance.final)
+}
+
+#gerando a amostra a ser utilizada no processo de estimação
+sequencia.sigmoide = criacao.amostra(x,n.amostral,q.sigmoide,0.1, 'crescente')
+sequencia.sigmoide
+
+
+# Argumentos da função estimar.mv().
+# x: é a amostra binária gerada
+# k: é o tamanho da maior palavra da árvore de contexto mais 1.
+
+# Caso queira testar os código da função estimar.mv, defina abaixo os argumentos que deseja utilizar:
+# x <- sequencia.sigmoide
+# k <- 5
+
+estimar.mv <- function(x,k){
+  # Precisamos criar um vetor que contenha a sequência binária gerada fora o último elemento
+  x2 = x[-length(x)]
+  # Converter a amostra binária gerada em formato caracter (facilita a contagem das sequências desejadas)
+  texto = as.character(x)
+  # O mesmo processo é realizado no vetor que não contém o último elemento
+  texto2 = as.character(x2)
+  # utilizamos a função 's2c' para desenvolver um algoritmo que contenha todas as possíveis combinações de 0's e 1's
+  alfabeto01 = s2c("01")
+  # Lista que contém todas as diferentes contagens das permutações entre 0's e 1's de tamanho k para a amostra completa
+  contagem = list()
+  # Lista que contém todas as diferentes contagens das permutações entre 0's e 1's de tamanho k para a amostra n-1
+  contagem.comp = list()
+  # Realizar a contagem em si, para os tamanhos de palavra até k
+  # Por exemplo, teremos em 'contagem[[1]]' o número de vezes que vimos 0's e 1's
+  # já em 'contagem[[2]]' o número de vezes que vimos 00's, 01's, 10's e 11's
+  for (i in 1:k) {
+    contagem[[i]] = count(texto, word = i,start = 0, by = 1, alphabet = alfabeto01 )
+    contagem.comp[[i]] = count(texto2, word = i,start = 0, by = 1, alphabet = alfabeto01 )
+  }
+  # Em sequência, geramos uma lista de matrizes que iram conter todas as matrizes geradas na função, desde a matriz com altura 1 até k-1
+  matrizes.estimadas = list()
+  # Para isso, geramos uma primeira matriz vazia e então adcionamos os valores estimados em suas respectivas posições
+  matriz.mv = matrix()
+  # Para o funcionamento desta função é importante notar que os valores de contagem estão posicionados em ordem de tal forma,
+  # que ao realizarmos a contagem temos que:
+  # dentro da contagem[[1]] o 1° elemento será o 0 e o 2° elemento será o 1
+  # Portanto quando pegamos o 1° elemento de contagem[[2]] temos o 00, além disso,
+  # o 2° elemento de contagem[[2]] temos o 01, logo, para estimar a matriz de transição
+  # iremos de dois em dois da contagem mais alta para 1 da contagem mais baixa, ou seja,
+  # contagem[[2]][[1]]/contagem[[1]][[1]] e contagem[[2]][[2]]/contagem[[1]][[1]]
+  for (j in 1:(k-1)) {
+    selecao = contagem[[j+1]]
+    selecao.comp = contagem.comp[[j]]
+    matriz.mv = matrix(0,(2^j),2)
+    for (z in 1:length(selecao.comp)) {
+      matriz.mv[z,1] = selecao[[(2*z - 1)]]/selecao.comp[[z]]
+      matriz.mv[z,2] = selecao[[(2*z)]]/selecao.comp[[z]]  
+    }
+    # salvamos cada uma das matrizes geradas na lista de matrizes
+    matrizes.estimadas[[j]] = matriz.mv
+  }
+  # por fim, retornamos a lista completa de matrizes estimadas
+  return(matrizes.estimadas)
+}
+
+#Lista com as matrizes de transição estimadas considerando árvores completas de alturas 1, 2, 3 e 4.
+grupo.matrizes = estimar.mv(sequencia.sigmoide,5)
+grupo.matrizes
+
+
+# Argumentos da função algoritmo.contexto(). Importante ressaltar que esta função realiza um corte por vez
+# matriz1: grupo.matrizes[[4]] matriz estimada de altura 4
+# matriz2: grupo.matrizes[[3]] matriz estimada de altura 3
+# k : 4 altura máxima que estamos utilizando nesta comparação
+# delta: 0.10 limite suportado para a diferença entre as distâncias comparadas
+
+# Caso queira testar os código da função algoritmo.contexto, defina abaixo os argumentos que deseja utilizar:
+# matriz1 <- grupo.matrizes[[4]]
+# matriz 2 <- grupo.matrizes[[3]]
+# k <- 4
+# delta <- 0.10
+
+algoritmo.contexto <- function(matriz1,matriz2,k,delta){
+  # Importante determinar um delta limite que permitimos o corte
+  delta = delta
+  # A matriz completa é aquela que contém a altura exposta na função e é a que desejamos podar
+  matriz.completa = matriz1
+  # A matriz corte é a matriz de menor altura dentro da comparação
+  matriz.corte = matriz2
+  # Criamos uma matriz responsavel por conter os valores escolhidos
+  matriz.final = matrix(0,(2^(k)),2)
+  # Para todos as probabilidades de transição realizamos a operação de subtração entre o ramo mais ao passado e seu respectivo nó
+  for (w in 1:(2^(k-1))) {
+    lado.impar = abs(matriz.completa[(w),1] - matriz.corte[w,1])
+    lado.par = abs(matriz.completa[(w + (2^(k-1))),1] - matriz.corte[w,1])
+    # Em caso de sucesso e conseguimos cortar o ramo, a matriz final recebe os valores da matriz corte
+    if (max(lado.impar,lado.par) < delta){
+      matriz.final[(w),1] = matriz.corte[w,1]
+      matriz.final[(w),2] = 1 - matriz.corte[w,1]
+    # caso contrário os valores da matriz são mantidos como os da completa
+    }else{
+      matriz.final[(w),1] = matriz.completa[(w),1]
+      matriz.final[(w),2] = matriz.completa[(w),2]
+      matriz.final[(w+(2^(k-1))),1] = matriz.completa[(w+(2^(k-1))),1]
+      matriz.final[(w+(2^(k-1))),2] = matriz.completa[(w+(2^(k-1))),2]
+    }
+  }
+  return(matriz.final)
+}
+
+# separando as matrizes que desejamos comparar
+# matriz de passado 4
+matriz1 = grupo.matrizes[[4]]
+
+# matriz de passado 3
+matriz2 = grupo.matrizes[[3]]
+
+# Apresentação de resultado da função algoritmo.contexto
+primeiro.corte = algoritmo.contexto(matriz1,matriz2,4,0.1)
+
+# criando a matriz final estimada para comparação
+primeiro.corte
+
+matriz.final.estimada = matrix(0,5,2)
+# Vale ressaltar que essa matriz está sendo utilizada exclusivamente para o cara em que a altura da árvore é 4
+matriz.final.estimada[5,1] = primeiro.corte[1,1]
+matriz.final.estimada[5,2] = primeiro.corte[1,2]
+matriz.final.estimada[4,1] = primeiro.corte[9,1]
+matriz.final.estimada[4,2] = primeiro.corte[9,2]
+
+### gerando o segundo corte
+
+# removemos as partes do meio mas mantendo quadrada para o algoritmo
+
+apos.corte = primeiro.corte[-c(9,10,11,12,13,14,15,16),]
+
+# necessário recortar a matriz de altura 2 para realizar a nova comparação
+matriz3 = grupo.matrizes[[2]]
+
+# aplicação do segundo corte
+segundo.corte = algoritmo.contexto(apos.corte,matriz3,3,0.1)
+
+# salvamos os resultados obtidos do segundo corte na matriz final
+
+matriz.final.estimada[3,1] = segundo.corte[5,1]
+matriz.final.estimada[3,2] = segundo.corte[5,2]
+
+# remover os zeros e valores não desejados para o último corte
+apos.corte2 = segundo.corte[-c(5,6,7,8),]
+
+# trazer então a matriz de altura 1 para finalizar os cortes da matriz
+matriz4 = grupo.matrizes[[1]]
+
+# corte final do nosso processo de algoritmo de contexto
+terceiro.corte = algoritmo.contexto(apos.corte2,matriz4,2,0.1)
+
+# salvando os últimos resultados
+matriz.final.estimada[2,1] = terceiro.corte[3,1]
+matriz.final.estimada[2,2] = terceiro.corte[3,2]
+
+matriz.final.estimada[1,1] = terceiro.corte[2,1]
+matriz.final.estimada[1,2] = terceiro.corte[2,2]
+
+#############################################################################
+
+### Função interna de contagem
+
+# Argumentos da função contagem.estimador().
+# x: é a amostra binária gerada
+# k: é o tamanho da maior palavra da árvore de contexto mais 1.
+
+# Caso queira testar os código da função contagem.estimador, defina abaixo os argumentos que deseja utilizar:
+# x <- sequencia.sigmoide
+# k <- 5
+
+contagem.estimador <- function(x,k){
+  # Precisamos criar um vetor que contenha a sequência binária gerada fora o último elemento
+  x2 = x[-length(x)]
+  # Converter a amostra binária gerada em formato caracter (facilita a contagem das sequências desejadas)
+  texto = as.character(x)
+  # O mesmo processo é realizado no vetor que não contém o último elemento
+  texto2 = as.character(x2)
+  # utilizamos a função 's2c' para desenvolver um algoritmo que contenha todas as possíveis combinações de 0's e 1's
+  alfabeto01 = s2c("01")
+  # Lista que contém todas as diferentes contagens das permutações entre 0's e 1's de tamanho k para a amostra completa
+  contagem = list()
+  # Lista que contém todas as diferentes contagens das permutações entre 0's e 1's de tamanho k para a amostra n-1
+  contagem.comp = list()
+  # Realizar a contagem em si, para os tamanhos de palavra até k
+  # Por exemplo, teremos em 'contagem[[1]]' o número de vezes que vimos 0's e 1's
+  # já em 'contagem[[2]]' o número de vezes que vimos 00's, 01's, 10's e 11's
+  for (i in 1:k) {
+    contagem[[i]] = count(texto, word = i,start = 0, by = 1, alphabet = alfabeto01 )
+    contagem.comp[[i]] = count(texto2, word = i,start = 0, by = 1, alphabet = alfabeto01 )
+  }
+  return(contagem)
+}
+
+
+
+#############################################################################
+#### Entropias
+
+# Argumentos da função entropia().
+# x: é a amostra binária fixada no começo do estudo
+# matriz: é a matriz de interesse (sendo que a matriz fixada resulta na entropia teórica e a matriz estimada resulta na entropia estimada)
+# t: é o tamanho de todas as possíveis seguintes ao passado fixado que desejamos utilizar
+
+# Caso queira testar os código da função contagem.estimador, defina abaixo os argumentos que deseja utilizar:
+# x <- x
+
+
+entropia <- function(x,matriz,t){
+  # criar uma lista que contenha os valores de cada uma das parcelas da soma da entropia
+  entropia.teorica = list()
+  # trazer o vetor com os valores fixos da semente escolhida
+  passado.fixo = x
+  #vetor com a posição do último 1 observado na sequência de valores passado.fixo - 1
+  ultimo.um.fixo = c()
+  #distância absoluta entre o último 1 encontrado na sequência de valores passado.fixo - 1 e o instante presente
+  distancia.ultimo.um.fixo = c()
+  #número de elementos da sequência de valores passado fixo
+  a = length(passado.fixo)
+  #tornando o objeto "matrix" q em um objeto do tipo "data frame"
+  df <- data.frame(matriz)
+  #inserindo um cabeçalho para as colunas do objeto "data frame" criado anteriormente
+  names(df) <- c("probabilidade0","probabilidade1")
+  #tornando o objeto "data frame" df em um objeto do tipo "data table"
+  dt <- data.table(df)
+  #altura da árvore de contexto ou, equivalentemente, tamanho da matriz inserida
+  altura.arvore = length(matriz)
+  # Coletar o valor do último estado da árvore (dividir por 2 já que agora nossa matriz possui duas colunas)
+  ultimo.estado.fixo = altura.arvore/2
+  #inserindo uma coluna no objeto "data table" dt que informa a distância absoluta entre os tempos t-1 o tempo último disparo do neurônio
+  dt[ , distancia := 0:(ultimo.estado.fixo-1) ]
+  #tornando o objeto "data table" dt em um objeto do tipo "data frame"
+  novo.df <- data.frame(dt)
+  # Gerar todas as possiveis combinações de 0's e 1's com tamanho t
+  combinacoes = do.call(CJ, replicate(t, 0:1, FALSE))
+  # Transformar as possíveis combinações em uma matriz fácil de utilizar
+  matriz.combinacoes = as.matrix(combinacoes)
+  # criar uma lista para as amostras que geramos
+  amostra.fixada = list()
+  # criar uma lista que contém o valor do último elemento observado na sequência em questão
+  ultimo.evento = c()
+  # cadeia específica utilizada para o cálculo da segunda parte (parte em evidência) da entropia (contém x + t - 1 elementos)
+  cadeia.alcance = c()
+  # probabilidade final que vai dentro do log2
+  prob.final = c()
+ 
+  for (i in 1:2^(t)) {
+    # gerar a amostra a partir de cada uma das possíveis combinações
+    amostra.fixada[[i]] = c(x,matriz.combinacoes[i,])
+    # Selecionar a i-ésima amostra
+    ultimo.evento = amostra.fixada[[i]]
+    # Coletar o último evento
+    ultimo.evento = ultimo.evento[length(ultimo.evento)]
+    #
+    cadeia.alcance = amostra.fixada[[i]]
+    # retirar o último elemento
+    cadeia.alcance = cadeia.alcance[-length(cadeia.alcance)]
+    # dentro do for, desenvolvemos essa função que encontra o último 1 e retorna seu index
+    ultimo.um.fixo <- tapply(seq_along(cadeia.alcance), cadeia.alcance, max)
+    # encontrar a distância do último 1 na sequÊncia
+    distancia.ultimo.um.fixo <- a + t - ultimo.um.fixo[[2]] - 1
+   
+    if (distancia.ultimo.um.fixo < 5) {
+      # Nossa árvore permite uma altura de até 4 0's seguidos, por conta disso impomos essa condição
+      nova.obs <- subset(novo.df,novo.df$distancia == distancia.ultimo.um.fixo)
+      # coletar a correta probabilidade do ultimo evento
+      if (ultimo.evento == 1) {
+        prob.final = nova.obs$probabilidade1
+      }else{
+        prob.final = nova.obs$probabilidade0
+      }
+      # aplicar a função de contagem para pegar cada uma das sequências vistas
+      contagem = contagem.estimador(amostra.fixada[[i]],5)
+      # selecionando as contagens de palavras do tamanho de 1 até 5
+      contagem1 = contagem[[1]]
+     
+      contagem2 = contagem[[2]]
+     
+      contagem3 = contagem[[3]]
+     
+      contagem4 = contagem[[4]]
+     
+      contagem5 = contagem[[5]]
+      # Aplicando a equação de entropia para cada uma das somas vistas
+      entropia.parte1 = (matriz[1,1]^(contagem2[[3]]))*(matriz[1,2]^(contagem2[[4]]))*(matriz[2,1]^(contagem3[[5]]))*
+        (matriz[2,2]^(contagem3[[6]]))*(matriz[3,1]^(contagem4[[9]]))*(matriz[3,2]^(contagem4[[10]]))*
+        (matriz[4,1]^(contagem5[[17]]))*(matriz[4,2]^(contagem5[[18]]))
+      # aplicando a condição de que quando a probabilidade for 0, para não termos indeterminação estamos considerando que
+      # 0 * log2 (0) = 0
+      if (prob.final == 0) {
+        entropia.parte2 = 0
+      }else{
+        entropia.parte2 = -(entropia.parte1*(log2(prob.final)))
+      }
+    }else{
+      entropia.parte2 = 0
+    }
+    # salvar cada uma das i parcelas da entropia
+    entropia.teorica[[i]] = entropia.parte2
+   
+  }
+ 
+  return(entropia.teorica)
+ 
+}
+
+# Gerar uma lista com as entropias ressultantes para um t=10
+entropia.teorica.lista = entropia(x,matriz.geradora,10)  
+
+# Criar uma variável que irá receber o valor da entropia teórica
+entropia.teorica = 0
+
+# Dentro do comprimento completo da lista de parcelas da entropia iremos somar todos os valores para obter a entropia teórica
+for (valores.internos in 1:length(entropia.teorica.lista)) {
+  soma.entropia = entropia.teorica.lista[[valores.internos]]
+  entropia.teorica = entropia.teorica + soma.entropia
+}
+
+# valor obtido
+entropia.teorica
+
+# entropia que será comparada
+# Gerar uma lista com as entropias ressultantes para um t=10
+
+entropia.estimada.lista = entropia(x,matriz.final.estimada,10)  
+
+# Criar uma variável que irá receber o valor da entropia estimada
+entropia.estimada = 0
+
+# Dentro do comprimento completo da lista de parcelas da entropia iremos somar todos os valores para obter a entropia estimada
+for (valores.internos in 1:length(entropia.estimada.lista)) {
+  soma.entropia = entropia.estimada.lista[[valores.internos]]
+  entropia.estimada = entropia.estimada + soma.entropia
+}
+
+# valor obtido
+entropia.estimada
+
+# encontrar os erros absolutos
+matrizes.erros.abs = abs(matriz.final.estimada - matriz.geradora)
+
+# encontrar os erros quadráticos
+matrizes.erros.quadr = (matriz.final.estimada - matriz.geradora)^2
+
+###### Guardar os valores
+
+dados.plot = as.data.frame(rep(n.amostral,5))
+
+estados.estudo = c('c(1)','c(1,0)','c(1,0,0)','c(1,0,0,0)','c(0,0,0,0,0)')
+
+estados = as.data.frame(estados.estudo)
+
+data.plot = cbind(dados.plot,estados,matriz_erro.absoluto.resultante[,1],matriz_erro.quadr.resultante[,1])
+
+names(data.plot) <- c("n","Estados","EAM","EQM")
+
+# armazenar e pegar a próxima repetição
+
+dados.n1 = data.plot
+
+# pular para esse caso trocou o n.amostral
+
+dados.n2 = rbind(dados.n1,data.plot)
+
+# então fazer 
+
+dados.n2 = rbind(dados.n2,data.plot)
+
+dados.cenario1 = as.data.frame(dados.n2)
+
+# criar os plots
+
+library(ggplot2)
+
+ggplot(dados.cenario1,aes(x = n, y = EAM)) +
+  geom_line() +
+  facet_wrap(~ Estado)+
+  labs(title = "EAM vs Tamanho amostral", x = "n", y = "EAM")
+
+
+ggplot(dados.cenario1,aes(x = n, y = EQM)) +
+  geom_line() +
+  facet_wrap(~ Estado)+
+  labs(title = "EQM vs Tamanho amostral", x = "n", y = "EQM")
+
+
+
+# dados para o plot da entropia
+
+dados.plot.entropia = as.data.frame(rep(n.amostral,1))
+
+erros.abs.entropia = abs(entropia.teorica - entropia.estimada)
+
+erros.quadraticos.entropia = (entropia.teorica - entropia.estimada)^2
+
+data.plot.entropia = cbind(dados.plot.entropia,erros.abs.entropia,erros.quadraticos.entropia)
+
+# armazenar estes dados para a troca de n.amostral
+
+dados.n1.entropia = data.plot.entropia
+
+# pular para esse caso trocou o n.amostral
+
+dados.n2.entropia = rbind(dados.n1.entropia,data.plot.entropia)
+
+# então fazer 
+
+dados.n2.entropia = rbind(dados.n2.entropia,data.plot.entropia)
+
+dados.cenario1.entropia = as.data.frame(dados.n2.entropia)
+
+ggplot(dados.cenario1.entropia,aes(x = n, y = EAM)) +
+  geom_line() +
+  labs(title = "EAM Entropia de transferência vs Tamanho amostral", x = "n", y = "EAM")
+
+ggplot(dados.cenario1.entropia,aes(x = n, y = EQM)) +
+  geom_line() +
+  labs(title = "EQM Entropia de transferência vs Tamanho amostral", x = "n", y = "EQM")
