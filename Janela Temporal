@@ -1,0 +1,33 @@
+#### Coletar uma amostra de observações de disparos reais
+registro = read.table("seu banco", header=FALSE)
+
+serie.de.disparos = registro$V1
+
+### encontrar a média para a janela desejada
+
+diferenca = c()
+
+for (i in 1:(length(serie.de.disparos)-1)){
+  diferenca[i] = abs(serie.de.disparos[i] - serie.de.disparos[i+1])
+}
+
+
+bin.utilizado = mean(diferenca)
+
+#gerar o total de intervalos
+intervalos = seq((serie.de.disparos[1]-bin/2), (serie.de.disparos[serie.de.disparos]+2*bin), bin.utilizado)
+
+# criar um vertor que contem todas as partições
+particoes = c()
+
+# para cada janela de intervalo verificar se existe pelo menos 1 disparo dentro
+for (i in 1:(length(serie.de.disparos)-1)){
+  a = serie.de.disparos[serie.de.disparos >= intervalos[i] & serie.de.disparos <= intervalos[i+1]]
+  if (length(a) >= 1) {
+    particoes[i] = 1
+  }else{
+    particoes[i] = 0
+  }
+}
+
+particoes
