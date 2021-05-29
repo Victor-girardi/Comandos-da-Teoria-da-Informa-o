@@ -1,0 +1,905 @@
+################################################################################################
+##   ALGORITMO PARA ESTIMAÇÃO DA ENTROPIA DE TRANSFERÊNCIA EM CENÁRIO COM 2 NEURÔNIOS         ##
+## Autor: Victor Augusto Girardi                                                              ##
+## Data da última atualização: 28 de maio de 2021                                             ##          
+## Projeto principal: Inferência da conectividade neuronal via medidas da teoria da informação##
+## Orientador: Prof. Dr. Ricardo Felipe Ferreira                                              ##
+## Co-orientador: Dr. Rodrigo Pena                                                            ##
+## Liguagem: R-Studio                                                                         ##                                                  
+################################################################################################
+
+# bibliotecas utilizadas
+library(data.table)
+library("seqinr")
+# definir uma semente para a simulação
+set.seed(semente)
+
+
+#gerando os valores inciais
+x1 = rbinom(4,1,0.5)
+x1
+
+x2 = rbinom(4,1,0.5)
+x2
+
+n.amostral = 60000
+
+# Logo abaixo, definimos então a função que recebe x (um vetor de valores prévios, nosso primeiro passado)
+# n que é o tamanho da amostra que quero gerar
+# q é a matrix de sucesso
+# e burn que é o quanto quero queimar da minha amostra (Este valor tem que ser um valor entre [0.1,1])
+
+matrix = c(0.1,0.2,0.1,0.15,0.25,0.15,0.15,0.3,0.2,0.25,0.35,0.25,
+           0.2,0.1,0.1,0.25,0.15,0.15,0.3,0.15,0.2,0.35,0.25,0.25,
+           0.15,0.15,0.15,0.175,0.175,0.25,0.2,0.2,0.35,0.3,0.3,0.4) # estou inserindo a Matrix que eu quero
+q = matrix(matrix,12,3) # matriz de h linhas e 1 coluna
+
+
+# criar a matriz que contem todos os valores
+
+matriz.geradora.cenario3 = matrix(0,13,4)
+
+matriz.geradora.cenario3[1:12,2] = q[1:12,1]
+matriz.geradora.cenario3[1:12,3] = q[1:12,2]
+matriz.geradora.cenario3[1:12,4] = q[1:12,3]
+matriz.geradora.cenario3[13,4] = 1
+matriz.geradora.cenario3[,1] = 1 - (matriz.geradora.cenario3[,2] + matriz.geradora.cenario3[,3] + matriz.geradora.cenario3[,4])
+
+
+
+
+# ordem é em relação ao comportamento da matrix, caso ao passar do tempo a probabilidade aumente por crescente, caso contrário decrescente
+
+criacao.amostra <- function(x1,x2,n,q,burn,altura,ordem){
+ 
+  cadeia.alcance = x1 + 2*x2
+ 
+  y = runif(n) # gerando uma distribuição uniforme de tamanho n
+ 
+  ser_diferente_zero <- function(x) x > 0 # função que encontra o valor 1 na sequência
+ 
+  ultimo_um = list() # vetor que registra o último um observado (posição index)
+ 
+  ultimo.estado.visto = c()
+ 
+  distancia.ultimo.um = c() # distÂncia do presente para o último 1 encontrado
+ 
+  prob.final = c()
+ 
+  prob.diff = c()
+ 
+  prob.evento1 = c()
+ 
+  prob.evento2 = c()
+ 
+  comprimento = length(cadeia.alcance) # comprimento da minha sequÊncia x dada
+ 
+  df <- data.frame( q )
+ 
+  names(df) <- c("probabilidade1","probabilidade2","probabilidade3") # nomear a coluna
+ 
+  altura.arvore = altura
+ 
+  distancia = rep(0:(altura.arvore - 1), each = 3)
+  estado = rep(c(1,2,3),altura.arvore)
+ 
+  df$distancia = distancia
+ 
+  df$estado = estado
+ 
+  matrix = c(0,0,0,0,0,0,1,1,1) # estou inserindo a Matrix que eu quero
+  a = matrix(matrix,3,3) # matriz de h linhas e 1 coluna
+ 
+  b = rep((altura.arvore), 3)
+  c = c(1,2,3)
+ 
+  corte.altura = as.data.frame(a)
+  corte.altura$b = b
+  corte.altura$c = c
+ 
+  # portanto, criamos agr o limite que minha série chega
+ 
+  names(df) <- c("probabilidade1","probabilidade2","probabilidade3","distancia","estado")
+ 
+  names(corte.altura) <-c("probabilidade1","probabilidade2","probabilidade3","distancia","estado")
+ 
+  frame.final <- rbind(df,corte.altura)
+ 
+  for(i in 1:n){
+    primeira.aboragem = tapply(seq_along(cadeia.alcance), cadeia.alcance, max)
+    retirada.zero = primeira.aboragem[-1]
+    ultimo_um[[i]] <- max(retirada.zero)
+    ultimo.estado.visto[[i]] <- cadeia.alcance[ultimo_um[[i]]]
+    # dentro do for, desenvolvemos essa função que encontra o último 1 e retorna seu index
+    distancia.ultimo.um[[i]] <- comprimento + i - ultimo_um[[i]] - 1
+    # Aqui descobrimos a distância do último 1 observado, ou seja, a é o tamanho de x + i que me retorna onde estou + 1
+    # (pois o i determina meu estado futuro), então - a posição do último 1 e um -1 para corrigir o i
+    nova.obs <- subset(frame.final,frame.final$distancia == distancia.ultimo.um[[i]] & frame.final$estado == ultimo.estado.visto[[i]])
+   
+    prob.diff[[i]] = 1 - nova.obs$probabilidade1 - nova.obs$probabilidade2 - nova.obs$probabilidade3
+   
+    prob.evento1[[i]] = prob.diff[[i]] + nova.obs$probabilidade1
+   
+    prob.evento2[[i]] = prob.diff[[i]] + nova.obs$probabilidade1 + nova.obs$probabilidade2
+   
+    if (y[i] <= prob.diff[[i]]) {
+      cadeia.alcance[comprimento+i] = 0
+    } else if (as.numeric(y[i]) <= prob.evento1[[i]]) {
+      cadeia.alcance[comprimento+i] = 1
+    } else if (as.numeric(y[i]) <= prob.evento2[[i]]) {
+      cadeia.alcance[comprimento+i] = 2
+    } else{
+      cadeia.alcance[comprimento+i] = 3
+    }
+   
+  }
+ 
+  burning = length(cadeia.alcance)*burn # nesta linha realizamos o burning
+ 
+  cadeia.alcance.final = cadeia.alcance[burning:length(cadeia.alcance)] # então por fim determinamos a nova série
+ 
+  return(cadeia.alcance.final)
+}
+
+
+sequenciacenario3 = criacao.amostra(x1,x2,n.amostral,q,0.1,4, 'crescente')
+sequenciacenario3
+
+
+############## MV
+
+estimar.mv.com.ac <- function(x,k){
+  x2 = x[-length(x)]
+  texto = as.character(x)
+  texto2 = as.character(x2)
+  alfabeto01 = s2c("0123")
+  contagem = list()
+  contagem.comp = list()
+  for (i in 1:k) {
+    contagem[[i]] = count(texto, word = i,start = 0, by = 1, alphabet = alfabeto01 )
+    contagem.comp[[i]] = count(texto2, word = i,start = 0, by = 1, alphabet = alfabeto01 )
+  }
+  matrizes.estimadas = list()
+  matriz.mv = matrix()
+  for (j in 1:(k-1)) {
+    selecao = contagem[[j+1]]
+    selecao.comp = contagem.comp[[j]]
+    matriz.mv = matrix(0,(4^j),4)
+    for (z in 1:length(selecao.comp)) {
+      matriz.mv[z,1] = selecao[[(4*z - 3)]]/selecao.comp[[z]]
+      matriz.mv[z,2] = selecao[[(4*z - 2)]]/selecao.comp[[z]]
+      matriz.mv[z,3] = selecao[[(4*z - 1)]]/selecao.comp[[z]]
+      matriz.mv[z,4] = selecao[[(4*z)]]/selecao.comp[[z]]
+    }
+    matrizes.estimadas[[j]] = matriz.mv
+  }
+  return(matrizes.estimadas)
+}
+
+
+teste = estimar.mv.com.ac(sequenciacenario3,5)
+
+teste
+
+
+algoritmo.contexto <- function(matriz1,matriz2,k,delta){
+  delta = delta
+  matriz.completa = matriz1
+  matriz.corte = matriz2
+  matriz.final = matrix(0,(4^(k-1)),4)
+  for (w in 1:(4^(k-2))) {
+    primeiro.quarto1 = abs(matriz.completa[(w),1] - matriz.corte[w,1])
+    segundo.quarto1 = abs(matriz.completa[(w+(4^(k-2))),1] - matriz.corte[w,1])
+    terceiro.quarto1 = abs(matriz.completa[(w+2*(4^(k-2))),1] - matriz.corte[w,1])
+    quarto.quarto1 = abs(matriz.completa[(w+3*(4^(k-2))),1] - matriz.corte[w,1])
+   
+    primeiro.max = max(primeiro.quarto1,segundo.quarto1,terceiro.quarto1,quarto.quarto1)
+   
+    primeiro.quarto2 = abs(matriz.completa[(w),2] - matriz.corte[w,2])
+    segundo.quarto2 = abs(matriz.completa[(w+(4^(k-2))),2] - matriz.corte[w,2])
+    terceiro.quarto2 = abs(matriz.completa[(w+2*(4^(k-2))),2] - matriz.corte[w,2])
+    quarto.quarto2 = abs(matriz.completa[(w+3*(4^(k-2))),2] - matriz.corte[w,2])
+   
+    segundo.max = max(primeiro.quarto2,segundo.quarto2,terceiro.quarto2,quarto.quarto2)
+   
+    primeiro.quarto3 = abs(matriz.completa[(w),3] - matriz.corte[w,3])
+    segundo.quarto3 = abs(matriz.completa[(w+(4^(k-2))),3] - matriz.corte[w,3])
+    terceiro.quarto3 = abs(matriz.completa[(w+2*(4^(k-2))),3] - matriz.corte[w,3])
+    quarto.quarto3 = abs(matriz.completa[(w+3*(4^(k-2))),3] - matriz.corte[w,3])
+   
+    terceiro.max = max(primeiro.quarto3,segundo.quarto3,terceiro.quarto3,quarto.quarto3)
+   
+    primeiro.quarto4 = abs(matriz.completa[(w),4] - matriz.corte[w,4])
+    segundo.quarto4 = abs(matriz.completa[(w+(4^(k-2))),4] - matriz.corte[w,4])
+    terceiro.quarto4 = abs(matriz.completa[(w+2*(4^(k-2))),4] - matriz.corte[w,4])
+    quarto.quarto4 = abs(matriz.completa[(w+3*(4^(k-2))),4] - matriz.corte[w,4])
+   
+    quarto.max = max(primeiro.quarto4,segundo.quarto4,terceiro.quarto4,quarto.quarto4)
+   
+    if (max(primeiro.max,segundo.max,terceiro.max,quarto.max) < delta){
+      matriz.final[(w),1] = matriz.corte[w,1]
+      matriz.final[(w),2] = matriz.corte[w,2]
+      matriz.final[w,3] = matriz.corte[w,3]
+      matriz.final[w,4] = matriz.corte[w,4]
+    }else{
+      matriz.final[(w),1] = matriz.completa[(w),1]
+      matriz.final[w,2] = matriz.completa[(w),2]
+      matriz.final[(w),3] = matriz.completa[(w),3]
+      matriz.final[(w),4] = matriz.completa[(w),4]
+      matriz.final[(w+(4^(k-2))),1] = matriz.completa[(w+(4^(k-2))),1]
+      matriz.final[(w+(4^(k-2))),2] = matriz.completa[w+(4^(k-2)),2]
+      matriz.final[(w+(4^(k-2))),3] = matriz.completa[(w+(4^(k-2))),3]
+      matriz.final[(w+(4^(k-2))),4] = matriz.completa[(w+(4^(k-2))),4]
+      matriz.final[(w+2*(4^(k-2))),1] = matriz.completa[(w+2*(4^(k-2))),1]
+      matriz.final[(w+2*(4^(k-2))),2] = matriz.completa[(w+2*(4^(k-2))),2]
+      matriz.final[(w+2*(4^(k-2))),3] = matriz.completa[(w+2*(4^(k-2))),3]
+      matriz.final[(w+2*(4^(k-2))),4] = matriz.completa[(w+2*(4^(k-2))),4]
+      matriz.final[(w+3*(4^(k-2))),1] = matriz.completa[(w+3*(4^(k-2))),1]
+      matriz.final[(w+3*(4^(k-2))),2] = matriz.completa[(w+3*(4^(k-2))),2]
+      matriz.final[(w+3*(4^(k-2))),3] = matriz.completa[(w+3*(4^(k-2))),3]
+      matriz.final[(w+3*(4^(k-2))),4] = matriz.completa[(w+3*(4^(k-2))),4]
+    }
+  }
+  return(matriz.final)
+}
+
+matriz1 = teste[[4]]
+
+matriz2 = teste[[3]]
+
+
+primeiro.corte = algoritmo.contexto(matriz1, matriz2,5,0.10)
+
+
+### matriz final
+
+matriz.final.estimada = matrix(0,13,4)
+
+matriz.final.estimada[13,1] = primeiro.corte[1,1]
+matriz.final.estimada[13,2] = primeiro.corte[1,2]
+matriz.final.estimada[13,3] = primeiro.corte[1,3]
+matriz.final.estimada[13,4] = primeiro.corte[1,4]
+matriz.final.estimada[12,1] = primeiro.corte[193,1]
+matriz.final.estimada[12,2] = primeiro.corte[193,2]
+matriz.final.estimada[12,3] = primeiro.corte[193,3]
+matriz.final.estimada[12,4] = primeiro.corte[193,4]
+matriz.final.estimada[11,1] = primeiro.corte[129,1]
+matriz.final.estimada[11,2] = primeiro.corte[129,2]
+matriz.final.estimada[11,3] = primeiro.corte[129,3]
+matriz.final.estimada[11,4] = primeiro.corte[129,4]
+matriz.final.estimada[10,1] = primeiro.corte[65,1]
+matriz.final.estimada[10,2] = primeiro.corte[65,2]
+matriz.final.estimada[10,3] = primeiro.corte[65,3]
+matriz.final.estimada[10,4] = primeiro.corte[65,4]
+
+
+### gerando o segundo corte
+
+# removemos as partes do meio mas mantendo quadrada para o algoritmo
+
+apos.corte = primeiro.corte[-c(65:256),]
+
+matriz3 = teste[[2]]
+
+segundo.corte = algoritmo.contexto(apos.corte,matriz3,4,0.10)
+
+segundo.corte
+
+matriz.final.estimada[9,1] = segundo.corte[49,1]
+matriz.final.estimada[9,2] = segundo.corte[49,2]
+matriz.final.estimada[9,3] = segundo.corte[49,3]
+matriz.final.estimada[9,4] = segundo.corte[49,4]
+matriz.final.estimada[8,1] = segundo.corte[33,1]
+matriz.final.estimada[8,2] = segundo.corte[33,2]
+matriz.final.estimada[8,3] = segundo.corte[33,3]
+matriz.final.estimada[8,4] = segundo.corte[33,4]
+matriz.final.estimada[7,1] = segundo.corte[17,1]
+matriz.final.estimada[7,2] = segundo.corte[17,2]
+matriz.final.estimada[7,3] = segundo.corte[17,3]
+matriz.final.estimada[7,4] = segundo.corte[17,4]
+
+matriz.final.estimada
+
+apos.corte2 = segundo.corte[-c(17:64),]
+
+matriz4 = teste[[1]]
+
+terceiro.corte = algoritmo.contexto(apos.corte2,matriz4,3,0.10)
+
+terceiro.corte
+
+matriz.final.estimada[6,1] = primeiro.corte[13,1]
+matriz.final.estimada[6,2] = primeiro.corte[13,2]
+matriz.final.estimada[6,3] = primeiro.corte[13,3]
+matriz.final.estimada[6,4] = primeiro.corte[13,4]
+matriz.final.estimada[5,1] = primeiro.corte[9,1]
+matriz.final.estimada[5,2] = primeiro.corte[9,2]
+matriz.final.estimada[5,3] = primeiro.corte[9,3]
+matriz.final.estimada[5,4] = primeiro.corte[9,4]
+matriz.final.estimada[4,1] = primeiro.corte[5,1]
+matriz.final.estimada[4,2] = primeiro.corte[5,2]
+matriz.final.estimada[4,3] = primeiro.corte[5,3]
+matriz.final.estimada[4,4] = primeiro.corte[5,4]
+
+matriz.final.estimada[3,1] = primeiro.corte[4,1]
+matriz.final.estimada[3,2] = primeiro.corte[4,2]
+matriz.final.estimada[3,3] = primeiro.corte[4,3]
+matriz.final.estimada[3,4] = primeiro.corte[4,4]
+matriz.final.estimada[2,1] = primeiro.corte[3,1]
+matriz.final.estimada[2,2] = primeiro.corte[3,2]
+matriz.final.estimada[2,3] = primeiro.corte[3,3]
+matriz.final.estimada[2,4] = primeiro.corte[3,4]
+matriz.final.estimada[1,1] = primeiro.corte[2,1]
+matriz.final.estimada[1,2] = primeiro.corte[2,2]
+matriz.final.estimada[1,3] = primeiro.corte[2,3]
+matriz.final.estimada[1,4] = primeiro.corte[2,4]
+
+
+matriz.geradora.cenario3
+
+matriz.final.estimada
+
+
+############################
+
+### Função interna de contagem
+
+# Argumentos da função contagem.estimador().
+# x: é a amostra binária gerada
+# k: é o tamanho da maior palavra da árvore de contexto mais 1.
+
+# Caso queira testar os código da função contagem.estimador, defina abaixo os argumentos que deseja utilizar:
+# x <- sequencia.sigmoide
+# k <- 5
+
+contagem.estimador <- function(x,k){
+  # Precisamos criar um vetor que contenha a sequência binária gerada fora o último elemento
+  x2 = x[-length(x)]
+  # Converter a amostra binária gerada em formato caracter (facilita a contagem das sequências desejadas)
+  texto = as.character(x)
+  # O mesmo processo é realizado no vetor que não contém o último elemento
+  texto2 = as.character(x2)
+  # utilizamos a função 's2c' para desenvolver um algoritmo que contenha todas as possíveis combinações de 0's e 1's
+  alfabeto01 = s2c("0123")
+  # Lista que contém todas as diferentes contagens das permutações entre 0's e 1's de tamanho k para a amostra completa
+  contagem = list()
+  # Lista que contém todas as diferentes contagens das permutações entre 0's e 1's de tamanho k para a amostra n-1
+  contagem.comp = list()
+  # Realizar a contagem em si, para os tamanhos de palavra até k
+  # Por exemplo, teremos em 'contagem[[1]]' o número de vezes que vimos 0's e 1's
+  # já em 'contagem[[2]]' o número de vezes que vimos 00's, 01's, 10's e 11's
+  for (i in 1:k) {
+    contagem[[i]] = count(texto, word = i,start = 0, by = 1, alphabet = alfabeto01 )
+    contagem.comp[[i]] = count(texto2, word = i,start = 0, by = 1, alphabet = alfabeto01 )
+  }
+  return(contagem)
+}
+
+conta = contagem.estimador(sequenciacenario3,5)
+
+#### entropia de transferância
+################################
+
+entropia.marginal <- function(x,y,matriz,t){
+  # criar uma lista que contenha os valores de cada uma das parcelas da soma da entropia
+  entropia.teorica = list()
+  # trazer o vetor com os valores fixos da semente escolhida
+  passado.fixo = x
+  passado.corrente = y
+  # Gerar todas as possiveis combinações de 0's e 1's com tamanho t
+  combinacoes.x = do.call(CJ, replicate(t, 0:1, FALSE))
+  combinacoes.y = do.call(CJ, replicate(t, 0:1, FALSE))
+  # Transformar as possíveis combinações em uma matriz fácil de utilizar
+  matriz.combinacoes.x = as.matrix(combinacoes.x)
+  matriz.combinacoes.y = as.matrix(combinacoes.y)
+  # criar uma lista para as amostras que geramos
+  amostra.fixada.x = list()
+  amostra.fixada.y = list()
+  amostra.z = list()
+  entropia.parte1 = list()
+  entropia.parte2 = list()
+  entropia.final.primeira.parte = list()
+  entropia.condicional.marginal = 0
+  entropia.final.parte1 = 0
+  entropia.final.parte2 = 0
+ 
+  for (i in 1:2^(t)) {
+    # gerar a amostra a partir de cada uma das possíveis combinações
+    amostra.fixada.x[[i]] = c(x,matriz.combinacoes.x[i,])
+   
+    for (j in 1:2^(t)) {
+      amostra.fixada.y[[j]] = c(y,matriz.combinacoes.y[j,])
+     
+      amostra.z[[j]] = amostra.fixada.x[[i]] + 2*amostra.fixada.y[[j]]
+     
+      contagem = contagem.estimador(amostra.z[[j]],5)
+      # selecionando as contagens de palavras do tamanho de 1 até 5
+      contagem1 = contagem[[1]]
+     
+      contagem2 = contagem[[2]]
+     
+      contagem3 = contagem[[3]]
+     
+      contagem4 = contagem[[4]]
+     
+      contagem5 = contagem[[5]]
+     
+      entropia.parte1[[j]] = (matriz[1,1]^(contagem2[[5]]))*(matriz[1,2]^(contagem2[[6]]))*(matriz[1,3]^(contagem2[[7]]))*(matriz[1,4]^(contagem2[[8]]))*
+        (matriz[2,1]^(contagem2[[9]]))*(matriz[2,2]^(contagem2[[10]]))*(matriz[2,3]^(contagem2[[11]]))*(matriz[2,4]^(contagem2[[12]]))*
+        (matriz[3,1]^(contagem2[[13]]))*(matriz[3,2]^(contagem2[[14]]))*(matriz[3,3]^(contagem2[[15]]))*(matriz[3,4]^(contagem2[[16]]))*
+        (matriz[4,1]^(contagem3[[17]]))*(matriz[4,2]^(contagem3[[18]]))*(matriz[4,3]^(contagem3[[19]]))*(matriz[4,4]^(contagem3[[20]]))*
+        (matriz[5,1]^(contagem3[[33]]))*(matriz[5,2]^(contagem3[[34]]))*(matriz[5,3]^(contagem3[[35]]))*(matriz[5,4]^(contagem3[[36]]))*
+        (matriz[6,1]^(contagem3[[49]]))*(matriz[6,2]^(contagem3[[50]]))*(matriz[6,3]^(contagem3[[51]]))*(matriz[6,4]^(contagem3[[52]]))*
+        (matriz[7,1]^(contagem4[[65]]))*(matriz[7,2]^(contagem4[[66]]))*(matriz[7,3]^(contagem4[[67]]))*(matriz[7,4]^(contagem4[[68]]))*
+        (matriz[8,1]^(contagem4[[129]]))*(matriz[8,2]^(contagem4[[130]]))*(matriz[8,3]^(contagem4[[131]]))*(matriz[8,4]^(contagem4[[132]]))*
+        (matriz[9,1]^(contagem4[[193]]))*(matriz[9,2]^(contagem4[[194]]))*(matriz[9,3]^(contagem4[[195]]))*(matriz[9,4]^(contagem4[[196]]))*
+        (matriz[10,1]^(contagem5[[257]]))*(matriz[10,2]^(contagem5[[258]]))*(matriz[10,3]^(contagem5[[259]]))*(matriz[10,4]^(contagem5[[260]]))*
+        (matriz[11,1]^(contagem5[[513]]))*(matriz[11,2]^(contagem5[[514]]))*(matriz[11,3]^(contagem5[[515]]))*(matriz[11,4]^(contagem5[[516]]))*
+        (matriz[12,1]^(contagem5[[769]]))*(matriz[12,2]^(contagem5[[770]]))*(matriz[12,3]^(contagem5[[771]]))*(matriz[12,4]^(contagem5[[772]]))*
+        (matriz[13,1]^(contagem5[[1]]))*(matriz[13,2]^(contagem5[[2]]))*(matriz[13,3]^(contagem5[[3]]))*(matriz[13,4]^(contagem5[[4]]))
+     
+      soma.entropia1 = 0  
+     
+      soma.entropia1 = entropia.parte1[[j]]  
+     
+      entropia.final.parte1 =  entropia.final.parte1 + soma.entropia1  
+     
+    }
+   
+   
+    for (w in 1:2^(t)) {
+      amostra.fixada.y[[w]] = c(y,matriz.combinacoes.y[w,])
+     
+      amostra.z[[w]] = amostra.fixada.x[[i]] + 2*amostra.fixada.y[[w]]
+     
+      amostra.z.menos1 = amostra.z[[w]]
+     
+      amostra.z.menos1 = amostra.z.menos1[-length(amostra.z.menos1)]
+     
+      if (w %% 2 == 0) {
+        entropia.parte2[[w]] = 0
+      }else{
+       
+        contagem = contagem.estimador(amostra.z.menos1,5)
+        # selecionando as contagens de palavras do tamanho de 1 até 5
+        contagem1 = contagem[[1]]
+       
+        contagem2 = contagem[[2]]
+       
+        contagem3 = contagem[[3]]
+       
+        contagem4 = contagem[[4]]
+       
+        contagem5 = contagem[[5]]
+       
+        entropia.parte2[[w]] = (matriz[1,1]^(contagem2[[5]]))*(matriz[1,2]^(contagem2[[6]]))*(matriz[1,3]^(contagem2[[7]]))*(matriz[1,4]^(contagem2[[8]]))*
+          (matriz[2,1]^(contagem2[[9]]))*(matriz[2,2]^(contagem2[[10]]))*(matriz[2,3]^(contagem2[[11]]))*(matriz[2,4]^(contagem2[[12]]))*
+          (matriz[3,1]^(contagem2[[13]]))*(matriz[3,2]^(contagem2[[14]]))*(matriz[3,3]^(contagem2[[15]]))*(matriz[3,4]^(contagem2[[16]]))*
+          (matriz[4,1]^(contagem3[[17]]))*(matriz[4,2]^(contagem3[[18]]))*(matriz[4,3]^(contagem3[[19]]))*(matriz[4,4]^(contagem3[[20]]))*
+          (matriz[5,1]^(contagem3[[33]]))*(matriz[5,2]^(contagem3[[34]]))*(matriz[5,3]^(contagem3[[35]]))*(matriz[5,4]^(contagem3[[36]]))*
+          (matriz[6,1]^(contagem3[[49]]))*(matriz[6,2]^(contagem3[[50]]))*(matriz[6,3]^(contagem3[[51]]))*(matriz[6,4]^(contagem3[[52]]))*
+          (matriz[7,1]^(contagem4[[65]]))*(matriz[7,2]^(contagem4[[66]]))*(matriz[7,3]^(contagem4[[67]]))*(matriz[7,4]^(contagem4[[68]]))*
+          (matriz[8,1]^(contagem4[[129]]))*(matriz[8,2]^(contagem4[[130]]))*(matriz[8,3]^(contagem4[[131]]))*(matriz[8,4]^(contagem4[[132]]))*
+          (matriz[9,1]^(contagem4[[193]]))*(matriz[9,2]^(contagem4[[194]]))*(matriz[9,3]^(contagem4[[195]]))*(matriz[9,4]^(contagem4[[196]]))*
+          (matriz[10,1]^(contagem5[[257]]))*(matriz[10,2]^(contagem5[[258]]))*(matriz[10,3]^(contagem5[[259]]))*(matriz[10,4]^(contagem5[[260]]))*
+          (matriz[11,1]^(contagem5[[513]]))*(matriz[11,2]^(contagem5[[514]]))*(matriz[11,3]^(contagem5[[515]]))*(matriz[11,4]^(contagem5[[516]]))*
+          (matriz[12,1]^(contagem5[[769]]))*(matriz[12,2]^(contagem5[[770]]))*(matriz[12,3]^(contagem5[[771]]))*(matriz[12,4]^(contagem5[[772]]))*
+          (matriz[13,1]^(contagem5[[1]]))*(matriz[13,2]^(contagem5[[2]]))*(matriz[13,3]^(contagem5[[3]]))*(matriz[13,4]^(contagem5[[4]]))
+       
+      }
+     
+      soma.entropia.parte2 = 0  
+     
+      soma.entropia.parte2 = entropia.parte2[[w]]  
+     
+      entropia.final.parte2 =  entropia.final.parte2 + soma.entropia.parte2
+     
+    }
+   
+    if (entropia.final.parte1 == 0|entropia.final.parte2 == 0) {
+      entropia.final.primeira.parte[[i]] =0
+    }else{
+      entropia.final.primeira.parte[[i]] = -(entropia.final.parte1*log2(entropia.final.parte1/entropia.final.parte2))
+    }
+   
+   
+  }
+ 
+  for (valores.internos in 1:length(entropia.final.primeira.parte)) {
+    soma.entropia = entropia.final.primeira.parte[[valores.internos]]
+    entropia.condicional.marginal = entropia.condicional.marginal + soma.entropia
+  }
+ 
+  return(entropia.condicional.marginal)
+ 
+}
+
+# Gerar uma lista com as entropias ressultantes para um t=10
+entropia.teorica.lista = entropia.marginal(x1,x2,matriz.geradora.cenario3,4)  
+
+entropia.teorica.lista
+
+#############################################################
+############# segunda parte
+
+entropia.condicional.bi <- function(x,y,matriz,t){
+  # Gerar todas as possiveis combinações de 0's e 1's com tamanho t
+  combinacoes.x = do.call(CJ, replicate(t, 0:1, FALSE))
+  combinacoes.y = do.call(CJ, replicate(t, 0:1, FALSE))
+  # Transformar as possíveis combinações em uma matriz fácil de utilizar
+  matriz.combinacoes.x = as.matrix(combinacoes.x)
+  matriz.combinacoes.y = as.matrix(combinacoes.y)
+  combinacoes.x.menos1 = do.call(CJ, replicate((t-1), 0:1, FALSE))
+  combinacoes.y.menos1 = do.call(CJ, replicate((t-1), 0:1, FALSE))
+  # Transformar as possíveis combinações em uma matriz fácil de utilizar
+  matriz.combinacoes.x.menos1 = as.matrix(combinacoes.x.menos1)
+  matriz.combinacoes.y.menos1 = as.matrix(combinacoes.y.menos1)
+  # criar uma lista para as amostras que geramos
+  amostra.fixada.x.impar = list()
+  amostra.fixada.x.par = list()
+  amostra.fixada.y = list()
+  amostra.fixada.x.menos = list()
+  amostra.fixada.y.0 = list()
+  amostra.fixada.y.1 = list()
+  amostra.z.impar.0 = list()
+  amostra.z.impar.1 = list()
+  amostra.z.par.0 = list()
+  amostra.z.par.1 = list()
+  amostra.z.menos = list()
+  contagem = list()
+  contagem.par.0 = list()
+  contagem.par.1 = list()
+  contagem.impar.1 = list()
+  contagem.impar.0 = list()
+  entropia.divisor = list()
+  entropia.parte2 = list()
+  entropia.impar.0 = list()
+  entropia.impar.1 = list()
+  entropia.impar = list()
+  entropia.par.0 = list()
+  entropia.par.1 = list()
+  entropia.par = list()
+  entropia.final.segunda.parte = list()
+  entropia.condicional.mult = 0
+  entropia.condicionada.parte1 = list()
+  entropia.condicionada.parte2 = list()
+  entropia.condicionada.y = list()
+  for (i in 1:2^(t-1)) {
+    # gerar a amostra a partir de cada uma das possíveis combinações
+    amostra.fixada.x.impar[[i]] = c(x,matriz.combinacoes.x[(2*i-1),])
+   
+    amostra.fixada.x.par[[i]] = c(x,matriz.combinacoes.x[(2*i),])
+   
+    amostra.fixada.x.menos[[i]] = c(x,matriz.combinacoes.x.menos1[i,])
+   
+    for (j in 1:2^(t-1)) {
+      amostra.fixada.y[[j]] = c(y,matriz.combinacoes.y.menos1[j,])
+     
+      amostra.fixada.y.0[[j]] = c(amostra.fixada.y[[j]],0)
+     
+      amostra.fixada.y.1[[j]] = c(amostra.fixada.y[[j]],1)
+     
+      ### 5 z
+     
+      amostra.z.impar.0[[j]] = amostra.fixada.x.impar[[i]] + 2*amostra.fixada.y.0[[j]]
+     
+      amostra.z.impar.1[[j]] = amostra.fixada.x.impar[[i]] + 2*amostra.fixada.y.1[[j]]
+     
+      amostra.z.par.0[[j]] = amostra.fixada.x.par[[i]] + 2*amostra.fixada.y.0[[j]]
+     
+      amostra.z.par.1[[j]] = amostra.fixada.x.par[[i]] + 2*amostra.fixada.y.1[[j]]
+     
+      amostra.z.menos[[j]] = amostra.fixada.x.menos[[i]] + 2*amostra.fixada.y[[j]]
+     
+      ### 2 contas
+     
+      contagem.impar.0[[j]] = contagem.estimador(amostra.z.impar.0[[j]],5)
+     
+      contagem.impar.0 = contagem.impar.0[[j]]
+     
+      # selecionando as contagens de palavras do tamanho de 1 até 5
+      contagem1.impar.0 = contagem.impar.0[[1]]
+     
+      contagem2.impar.0 = contagem.impar.0[[2]]
+     
+      contagem3.impar.0 = contagem.impar.0[[3]]
+     
+      contagem4.impar.0 = contagem.impar.0[[4]]
+     
+      contagem5.impar.0 = contagem.impar.0[[5]]
+     
+      entropia.impar.0[[j]] = (matriz[1,1]^(contagem2.impar.0[[5]]))*(matriz[1,2]^(contagem2.impar.0[[6]]))*(matriz[1,3]^(contagem2.impar.0[[7]]))*(matriz[1,4]^(contagem2.impar.0[[8]]))*
+        (matriz[2,1]^(contagem2.impar.0[[9]]))*(matriz[2,2]^(contagem2.impar.0[[10]]))*(matriz[2,3]^(contagem2.impar.0[[11]]))*(matriz[2,4]^(contagem2.impar.0[[12]]))*
+        (matriz[3,1]^(contagem2.impar.0[[13]]))*(matriz[3,2]^(contagem2.impar.0[[14]]))*(matriz[3,3]^(contagem2.impar.0[[15]]))*(matriz[3,4]^(contagem2.impar.0[[16]]))*
+        (matriz[4,1]^(contagem3.impar.0[[17]]))*(matriz[4,2]^(contagem3.impar.0[[18]]))*(matriz[4,3]^(contagem3.impar.0[[19]]))*(matriz[4,4]^(contagem3.impar.0[[20]]))*
+        (matriz[5,1]^(contagem3.impar.0[[33]]))*(matriz[5,2]^(contagem3.impar.0[[34]]))*(matriz[5,3]^(contagem3.impar.0[[35]]))*(matriz[5,4]^(contagem3.impar.0[[36]]))*
+        (matriz[6,1]^(contagem3.impar.0[[49]]))*(matriz[6,2]^(contagem3.impar.0[[50]]))*(matriz[6,3]^(contagem3.impar.0[[51]]))*(matriz[6,4]^(contagem3.impar.0[[52]]))*
+        (matriz[7,1]^(contagem4.impar.0[[65]]))*(matriz[7,2]^(contagem4.impar.0[[66]]))*(matriz[7,3]^(contagem4.impar.0[[67]]))*(matriz[7,4]^(contagem4.impar.0[[68]]))*
+        (matriz[8,1]^(contagem4.impar.0[[129]]))*(matriz[8,2]^(contagem4.impar.0[[130]]))*(matriz[8,3]^(contagem4.impar.0[[131]]))*(matriz[8,4]^(contagem4.impar.0[[132]]))*
+        (matriz[9,1]^(contagem4.impar.0[[193]]))*(matriz[9,2]^(contagem4.impar.0[[194]]))*(matriz[9,3]^(contagem4.impar.0[[195]]))*(matriz[9,4]^(contagem4.impar.0[[196]]))*
+        (matriz[10,1]^(contagem5.impar.0[[257]]))*(matriz[10,2]^(contagem5.impar.0[[258]]))*(matriz[10,3]^(contagem5.impar.0[[259]]))*(matriz[10,4]^(contagem5.impar.0[[260]]))*
+        (matriz[11,1]^(contagem5.impar.0[[513]]))*(matriz[11,2]^(contagem5.impar.0[[514]]))*(matriz[11,3]^(contagem5.impar.0[[515]]))*(matriz[11,4]^(contagem5.impar.0[[516]]))*
+        (matriz[12,1]^(contagem5.impar.0[[769]]))*(matriz[12,2]^(contagem5.impar.0[[770]]))*(matriz[12,3]^(contagem5.impar.0[[771]]))*(matriz[12,4]^(contagem5.impar.0[[772]]))*
+        (matriz[13,1]^(contagem5.impar.0[[1]]))*(matriz[13,2]^(contagem5.impar.0[[2]]))*(matriz[13,3]^(contagem5.impar.0[[3]]))*(matriz[13,4]^(contagem5.impar.0[[4]]))
+     
+     
+      contagem.impar.1[[j]] = contagem.estimador(amostra.z.impar.1[[j]],5)
+     
+      contagem.impar.1 = contagem.impar.1[[j]]
+     
+      # selecionando as contagens de palavras do tamanho de 1 até 5
+      contagem1.impar.1 = contagem.impar.1[[1]]
+     
+      contagem2.impar.1 = contagem.impar.1[[2]]
+     
+      contagem3.impar.1 = contagem.impar.1[[3]]
+     
+      contagem4.impar.1 = contagem.impar.1[[4]]
+     
+      contagem5.impar.1 = contagem.impar.1[[5]]
+     
+      entropia.impar.1[[j]] = (matriz[1,1]^(contagem2.impar.1[[5]]))*(matriz[1,2]^(contagem2.impar.1[[6]]))*(matriz[1,3]^(contagem2.impar.1[[7]]))*(matriz[1,4]^(contagem2.impar.1[[8]]))*
+        (matriz[2,1]^(contagem2.impar.1[[9]]))*(matriz[2,2]^(contagem2.impar.1[[10]]))*(matriz[2,3]^(contagem2.impar.1[[11]]))*(matriz[2,4]^(contagem2.impar.1[[12]]))*
+        (matriz[3,1]^(contagem2.impar.1[[13]]))*(matriz[3,2]^(contagem2.impar.1[[14]]))*(matriz[3,3]^(contagem2.impar.1[[15]]))*(matriz[3,4]^(contagem2.impar.1[[16]]))*
+        (matriz[4,1]^(contagem3.impar.1[[17]]))*(matriz[4,2]^(contagem3.impar.1[[18]]))*(matriz[4,3]^(contagem3.impar.1[[19]]))*(matriz[4,4]^(contagem3.impar.1[[20]]))*
+        (matriz[5,1]^(contagem3.impar.1[[33]]))*(matriz[5,2]^(contagem3.impar.1[[34]]))*(matriz[5,3]^(contagem3.impar.1[[35]]))*(matriz[5,4]^(contagem3.impar.1[[36]]))*
+        (matriz[6,1]^(contagem3.impar.1[[49]]))*(matriz[6,2]^(contagem3.impar.1[[50]]))*(matriz[6,3]^(contagem3.impar.1[[51]]))*(matriz[6,4]^(contagem3.impar.1[[52]]))*
+        (matriz[7,1]^(contagem4.impar.1[[65]]))*(matriz[7,2]^(contagem4.impar.1[[66]]))*(matriz[7,3]^(contagem4.impar.1[[67]]))*(matriz[7,4]^(contagem4.impar.1[[68]]))*
+        (matriz[8,1]^(contagem4.impar.1[[129]]))*(matriz[8,2]^(contagem4.impar.1[[130]]))*(matriz[8,3]^(contagem4.impar.1[[131]]))*(matriz[8,4]^(contagem4.impar.1[[132]]))*
+        (matriz[9,1]^(contagem4.impar.1[[193]]))*(matriz[9,2]^(contagem4.impar.1[[194]]))*(matriz[9,3]^(contagem4.impar.1[[195]]))*(matriz[9,4]^(contagem4.impar.1[[196]]))*
+        (matriz[10,1]^(contagem5.impar.1[[257]]))*(matriz[10,2]^(contagem5.impar.1[[258]]))*(matriz[10,3]^(contagem5.impar.1[[259]]))*(matriz[10,4]^(contagem5.impar.1[[260]]))*
+        (matriz[11,1]^(contagem5.impar.1[[513]]))*(matriz[11,2]^(contagem5.impar.1[[514]]))*(matriz[11,3]^(contagem5.impar.1[[515]]))*(matriz[11,4]^(contagem5.impar.1[[516]]))*
+        (matriz[12,1]^(contagem5.impar.1[[769]]))*(matriz[12,2]^(contagem5.impar.1[[770]]))*(matriz[12,3]^(contagem5.impar.1[[771]]))*(matriz[12,4]^(contagem5.impar.1[[772]]))*
+        (matriz[13,1]^(contagem5.impar.1[[1]]))*(matriz[13,2]^(contagem5.impar.1[[2]]))*(matriz[13,3]^(contagem5.impar.1[[3]]))*(matriz[13,4]^(contagem5.impar.1[[4]]))
+     
+     
+      entropia.impar[[j]] = entropia.impar.1[[j]] + entropia.impar.0[[j]]
+     
+     
+      ##### parte par
+     
+      contagem.par.0[[j]] = contagem.estimador(amostra.z.par.0[[j]],5)
+     
+      contagem.par.0 = contagem.par.0[[j]]
+     
+      # selecionando as contagens de palavras do tamanho de 1 até 5
+      contagem1.par.0 = contagem.par.0[[1]]
+     
+      contagem2.par.0 = contagem.par.0[[2]]
+     
+      contagem3.par.0 = contagem.par.0[[3]]
+     
+      contagem4.par.0 = contagem.par.0[[4]]
+     
+      contagem5.par.0 = contagem.par.0[[5]]
+     
+      entropia.par.0[[j]] = (matriz[1,1]^(contagem2.par.0[[5]]))*(matriz[1,2]^(contagem2.par.0[[6]]))*(matriz[1,3]^(contagem2.par.0[[7]]))*(matriz[1,4]^(contagem2.par.0[[8]]))*
+        (matriz[2,1]^(contagem2.par.0[[9]]))*(matriz[2,2]^(contagem2.par.0[[10]]))*(matriz[2,3]^(contagem2.par.0[[11]]))*(matriz[2,4]^(contagem2.par.0[[12]]))*
+        (matriz[3,1]^(contagem2.par.0[[13]]))*(matriz[3,2]^(contagem2.par.0[[14]]))*(matriz[3,3]^(contagem2.par.0[[15]]))*(matriz[3,4]^(contagem2.par.0[[16]]))*
+        (matriz[4,1]^(contagem3.par.0[[17]]))*(matriz[4,2]^(contagem3.par.0[[18]]))*(matriz[4,3]^(contagem3.par.0[[19]]))*(matriz[4,4]^(contagem3.par.0[[20]]))*
+        (matriz[5,1]^(contagem3.par.0[[33]]))*(matriz[5,2]^(contagem3.par.0[[34]]))*(matriz[5,3]^(contagem3.par.0[[35]]))*(matriz[5,4]^(contagem3.par.0[[36]]))*
+        (matriz[6,1]^(contagem3.par.0[[49]]))*(matriz[6,2]^(contagem3.par.0[[50]]))*(matriz[6,3]^(contagem3.par.0[[51]]))*(matriz[6,4]^(contagem3.par.0[[52]]))*
+        (matriz[7,1]^(contagem4.par.0[[65]]))*(matriz[7,2]^(contagem4.par.0[[66]]))*(matriz[7,3]^(contagem4.par.0[[67]]))*(matriz[7,4]^(contagem4.par.0[[68]]))*
+        (matriz[8,1]^(contagem4.par.0[[129]]))*(matriz[8,2]^(contagem4.par.0[[130]]))*(matriz[8,3]^(contagem4.par.0[[131]]))*(matriz[8,4]^(contagem4.par.0[[132]]))*
+        (matriz[9,1]^(contagem4.par.0[[193]]))*(matriz[9,2]^(contagem4.par.0[[194]]))*(matriz[9,3]^(contagem4.par.0[[195]]))*(matriz[9,4]^(contagem4.par.0[[196]]))*
+        (matriz[10,1]^(contagem5.par.0[[257]]))*(matriz[10,2]^(contagem5.par.0[[258]]))*(matriz[10,3]^(contagem5.par.0[[259]]))*(matriz[10,4]^(contagem5.par.0[[260]]))*
+        (matriz[11,1]^(contagem5.par.0[[513]]))*(matriz[11,2]^(contagem5.par.0[[514]]))*(matriz[11,3]^(contagem5.par.0[[515]]))*(matriz[11,4]^(contagem5.par.0[[516]]))*
+        (matriz[12,1]^(contagem5.par.0[[769]]))*(matriz[12,2]^(contagem5.par.0[[770]]))*(matriz[12,3]^(contagem5.par.0[[771]]))*(matriz[12,4]^(contagem5.par.0[[772]]))*
+        (matriz[13,1]^(contagem5.par.0[[1]]))*(matriz[13,2]^(contagem5.par.0[[2]]))*(matriz[13,3]^(contagem5.par.0[[3]]))*(matriz[13,4]^(contagem5.par.0[[4]]))
+     
+     
+      contagem.par.1[[j]] = contagem.estimador(amostra.z.par.1[[j]],5)
+     
+      contagem.par.1 = contagem.par.1[[j]]
+     
+      # selecionando as contagens de palavras do tamanho de 1 até 5
+      contagem1.par.1 = contagem.par.1[[1]]
+     
+      contagem2.par.1 = contagem.par.1[[2]]
+     
+      contagem3.par.1 = contagem.par.1[[3]]
+     
+      contagem4.par.1 = contagem.par.1[[4]]
+     
+      contagem5.par.1 = contagem.par.1[[5]]
+     
+      entropia.par.1[[j]] = (matriz[1,1]^(contagem2.par.1[[5]]))*(matriz[1,2]^(contagem2.par.1[[6]]))*(matriz[1,3]^(contagem2.par.1[[7]]))*(matriz[1,4]^(contagem2.par.1[[8]]))*
+        (matriz[2,1]^(contagem2.par.1[[9]]))*(matriz[2,2]^(contagem2.par.1[[10]]))*(matriz[2,3]^(contagem2.par.1[[11]]))*(matriz[2,4]^(contagem2.par.1[[12]]))*
+        (matriz[3,1]^(contagem2.par.1[[13]]))*(matriz[3,2]^(contagem2.par.1[[14]]))*(matriz[3,3]^(contagem2.par.1[[15]]))*(matriz[3,4]^(contagem2.par.1[[16]]))*
+        (matriz[4,1]^(contagem3.par.1[[17]]))*(matriz[4,2]^(contagem3.par.1[[18]]))*(matriz[4,3]^(contagem3.par.1[[19]]))*(matriz[4,4]^(contagem3.par.1[[20]]))*
+        (matriz[5,1]^(contagem3.par.1[[33]]))*(matriz[5,2]^(contagem3.par.1[[34]]))*(matriz[5,3]^(contagem3.par.1[[35]]))*(matriz[5,4]^(contagem3.par.1[[36]]))*
+        (matriz[6,1]^(contagem3.par.1[[49]]))*(matriz[6,2]^(contagem3.par.1[[50]]))*(matriz[6,3]^(contagem3.par.1[[51]]))*(matriz[6,4]^(contagem3.par.1[[52]]))*
+        (matriz[7,1]^(contagem4.par.1[[65]]))*(matriz[7,2]^(contagem4.par.1[[66]]))*(matriz[7,3]^(contagem4.par.1[[67]]))*(matriz[7,4]^(contagem4.par.1[[68]]))*
+        (matriz[8,1]^(contagem4.par.1[[129]]))*(matriz[8,2]^(contagem4.par.1[[130]]))*(matriz[8,3]^(contagem4.par.1[[131]]))*(matriz[8,4]^(contagem4.par.1[[132]]))*
+        (matriz[9,1]^(contagem4.par.1[[193]]))*(matriz[9,2]^(contagem4.par.1[[194]]))*(matriz[9,3]^(contagem4.par.1[[195]]))*(matriz[9,4]^(contagem4.par.1[[196]]))*
+        (matriz[10,1]^(contagem5.par.1[[257]]))*(matriz[10,2]^(contagem5.par.1[[258]]))*(matriz[10,3]^(contagem5.par.1[[259]]))*(matriz[10,4]^(contagem5.par.1[[260]]))*
+        (matriz[11,1]^(contagem5.par.1[[513]]))*(matriz[11,2]^(contagem5.par.1[[514]]))*(matriz[11,3]^(contagem5.par.1[[515]]))*(matriz[11,4]^(contagem5.par.1[[516]]))*
+        (matriz[12,1]^(contagem5.par.1[[769]]))*(matriz[12,2]^(contagem5.par.1[[770]]))*(matriz[12,3]^(contagem5.par.1[[771]]))*(matriz[12,4]^(contagem5.par.1[[772]]))*
+        (matriz[13,1]^(contagem5.par.1[[1]]))*(matriz[13,2]^(contagem5.par.1[[2]]))*(matriz[13,3]^(contagem5.par.1[[3]]))*(matriz[13,4]^(contagem5.par.1[[4]]))
+     
+     
+      entropia.par[[j]] = entropia.par.1[[j]] + entropia.par.0[[j]]
+     
+     
+      # divisor do log
+     
+      contagem[[j]] = contagem.estimador(amostra.z.menos[[j]],5)
+     
+      contagem = contagem[[j]]
+     
+      # selecionando as contagens de palavras do tamanho de 1 até 5
+      contagem1 = contagem[[1]]
+     
+      contagem2 = contagem[[2]]
+     
+      contagem3 = contagem[[3]]
+     
+      contagem4 = contagem[[4]]
+     
+      contagem5 = contagem[[5]]
+     
+      entropia.divisor[[j]] = (matriz[1,1]^(contagem2[[5]]))*(matriz[1,2]^(contagem2[[6]]))*(matriz[1,3]^(contagem2[[7]]))*(matriz[1,4]^(contagem2[[8]]))*
+        (matriz[2,1]^(contagem2[[9]]))*(matriz[2,2]^(contagem2[[10]]))*(matriz[2,3]^(contagem2[[11]]))*(matriz[2,4]^(contagem2[[12]]))*
+        (matriz[3,1]^(contagem2[[13]]))*(matriz[3,2]^(contagem2[[14]]))*(matriz[3,3]^(contagem2[[15]]))*(matriz[3,4]^(contagem2[[16]]))*
+        (matriz[4,1]^(contagem3[[17]]))*(matriz[4,2]^(contagem3[[18]]))*(matriz[4,3]^(contagem3[[19]]))*(matriz[4,4]^(contagem3[[20]]))*
+        (matriz[5,1]^(contagem3[[33]]))*(matriz[5,2]^(contagem3[[34]]))*(matriz[5,3]^(contagem3[[35]]))*(matriz[5,4]^(contagem3[[36]]))*
+        (matriz[6,1]^(contagem3[[49]]))*(matriz[6,2]^(contagem3[[50]]))*(matriz[6,3]^(contagem3[[51]]))*(matriz[6,4]^(contagem3[[52]]))*
+        (matriz[7,1]^(contagem4[[65]]))*(matriz[7,2]^(contagem4[[66]]))*(matriz[7,3]^(contagem4[[67]]))*(matriz[7,4]^(contagem4[[68]]))*
+        (matriz[8,1]^(contagem4[[129]]))*(matriz[8,2]^(contagem4[[130]]))*(matriz[8,3]^(contagem4[[131]]))*(matriz[8,4]^(contagem4[[132]]))*
+        (matriz[9,1]^(contagem4[[193]]))*(matriz[9,2]^(contagem4[[194]]))*(matriz[9,3]^(contagem4[[195]]))*(matriz[9,4]^(contagem4[[196]]))*
+        (matriz[10,1]^(contagem5[[257]]))*(matriz[10,2]^(contagem5[[258]]))*(matriz[10,3]^(contagem5[[259]]))*(matriz[10,4]^(contagem5[[260]]))*
+        (matriz[11,1]^(contagem5[[513]]))*(matriz[11,2]^(contagem5[[514]]))*(matriz[11,3]^(contagem5[[515]]))*(matriz[11,4]^(contagem5[[516]]))*
+        (matriz[12,1]^(contagem5[[769]]))*(matriz[12,2]^(contagem5[[770]]))*(matriz[12,3]^(contagem5[[771]]))*(matriz[12,4]^(contagem5[[772]]))*
+        (matriz[13,1]^(contagem5[[1]]))*(matriz[13,2]^(contagem5[[2]]))*(matriz[13,3]^(contagem5[[3]]))*(matriz[13,4]^(contagem5[[4]]))
+     
+     
+      if (entropia.divisor[[j]] == 0|entropia.impar[[j]] == 0) {
+        entropia.condicionada.parte1[[j]] =0
+      }else{
+        entropia.condicionada.parte1[[j]] = -(entropia.impar[[j]]*log2(entropia.impar[[j]]/entropia.divisor[[j]]))
+      }
+     
+      if (entropia.divisor[[j]] == 0|entropia.par[[j]] == 0) {
+        entropia.condicionada.parte2[[j]] =0
+      }else{
+        entropia.condicionada.parte2[[j]] = -(entropia.par[[j]]*log2(entropia.par[[j]]/entropia.divisor[[j]]))
+      }
+     
+      entropia.condicionada.y[[j]] = entropia.condicionada.parte1[[j]]+entropia.condicionada.parte2[[j]]
+     
+      soma.entropia = 0
+     
+      entropia.percorre.y = 0
+     
+      for (valores.internos in 1:length(entropia.condicionada.y)) {
+        soma.entropia = entropia.condicionada.y[[valores.internos]]
+        entropia.percorre.y = entropia.percorre.y + soma.entropia
+      }
+     
+    }
+   
+    entropia.final.segunda.parte[[i]] = entropia.percorre.y
+   
+  }
+ 
+  return(entropia.final.segunda.parte)
+ 
+}
+
+
+# entropia de trnasferência
+
+entropia.transferencia <- function(x,y,matriz,t){
+ 
+  entropia.transferencia = 0
+ 
+  entropia.parte1 = entropia.marginal(x,y,matriz,t)  
+ 
+  entropia.parte2.lista = entropia.condicional.bi(x,y,matriz,t)
+ 
+  entropia.parte2 = 0
+ 
+  for (valores.internos in 1:length(entropia.parte2.lista)) {
+    soma.entropia = entropia.parte2.lista[[valores.internos]]
+    entropia.parte2 = entropia.parte2 + soma.entropia
+  }
+ 
+  entropia.transferencia = entropia.parte1 - entropia.parte2
+ 
+ 
+  return(entropia.transferencia)
+ 
+}
+
+entropia.transferencia(x1,x2,matriz.geradora.cenario3,6)
+
+entropia.marginal(x1,x2,matriz.geradora.cenario3,6)
+
+# encontrar os erros absolutos
+matrizes.erros.abs = abs(matriz.final.estimada - matriz.geradora.cenario3)
+
+# encontrar os erros quadráticos
+matrizes.erros.quadr = (matriz.final.estimada - matriz.geradora.cenario3)^2
+
+###### Guardar os valores
+# importante ressaltar que aqui estamos fazendo para um estado seguinte de cada vez
+
+dados.plot = as.data.frame(rep(n.amostral,13))
+
+estados.estudo = c('c(1)','c(2)','c(3)','c(1,0)','c(2,0)',
+                   'c(3,0)','c(1,0,0)','c(2,0,0)','c(3,0,0)',
+                   'c(1,0,0,0)','c(2,0,0,0)','c(3,0,0,0)','c(0,0,0,0,0)')
+
+estados = as.data.frame(estados.estudo)
+
+# considerando que o próximo evento é ir para o 1
+data.plot = cbind(dados.plot,estados,matriz_erro.absoluto.resultante[,1],matriz_erro.quadr.resultante[,1])
+
+names(data.plot) <- c("n","Estados","EAM","EQM")
+
+# armazenar e pegar a próxima repetição
+
+dados.n1 = data.plot
+
+# pular para esse caso trocou o n.amostral
+
+dados.n2 = rbind(dados.n1,data.plot)
+
+# então fazer 
+
+dados.n2 = rbind(dados.n2,data.plot)
+
+dados.cenario3 = as.data.frame(dados.n2)
+
+# criar os plots
+
+library(ggplot2)
+
+ggplot(dados.cenario3,aes(x = n, y = EAM)) +
+  geom_line() +
+  facet_wrap(~ Estado)+
+  labs(title = "EAM vs Tamanho amostral", x = "n", y = "EAM")
+
+
+ggplot(dados.cenario3,aes(x = n, y = EQM)) +
+  geom_line() +
+  facet_wrap(~ Estado)+
+  labs(title = "EQM vs Tamanho amostral", x = "n", y = "EQM")
+
+
+
+# dados para o plot da entropia
+
+dados.plot.entropia = as.data.frame(rep(n.amostral,1))
+
+entropia.teorica = entropia.transferencia(x1,x2,matriz.geradora.cenario3,6)
+
+entropia.estimada = entropia.transferencia(x1,x2,matriz.final.estimada,6)
+
+erros.abs.entropia = abs(entropia.teorica - entropia.estimada)
+
+erros.quadraticos.entropia = (entropia.teorica - entropia.estimada)^2
+
+data.plot.entropia = cbind(dados.plot.entropia,erros.abs.entropia,erros.quadraticos.entropia)
+
+# armazenar estes dados para a troca de n.amostral
+
+dados.n1.entropia = data.plot.entropia
+
+# pular para esse caso trocou o n.amostral
+
+dados.n2.entropia = rbind(dados.n1.entropia,data.plot.entropia)
+
+# então fazer 
+
+dados.n2.entropia = rbind(dados.n2.entropia,data.plot.entropia)
+
+dados.cenario3.entropia = as.data.frame(dados.n2.entropia)
+
+ggplot(dados.cenario3.entropia,aes(x = n, y = EAM)) +
+  geom_line() +
+  labs(title = "EAM Entropia de transferência vs Tamanho amostral", x = "n", y = "EAM")
+
+ggplot(dados.cenario3.entropia,aes(x = n, y = EQM)) +
+  geom_line() +
+  labs(title = "EQM Entropia de transferência vs Tamanho amostral", x = "n", y = "EQM")
